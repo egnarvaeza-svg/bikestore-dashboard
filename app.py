@@ -70,11 +70,17 @@ def load_data():
 products, order_items, orders, categories, staffs = load_data()
 
 # ============================================
-# PREPARAR DATOS PARA FILTROS
+# PREPARAR DATOS PARA FILTROS (CORREGIDO)
 # ============================================
-# Crear dataset combinado
+# Crear dataset combinado COMPLETO con staffs
 orders["order_date"] = pd.to_datetime(orders["order_date"])
-merged_data = order_items.merge(products, on="product_id").merge(categories, on="category_id").merge(orders, on="order_id")
+merged_data = (
+    order_items
+    .merge(products, on="product_id")
+    .merge(categories, on="category_id")
+    .merge(orders, on="order_id")
+    .merge(staffs, on="staff_id")  # ¡AGREGAR STAFFS!
+)
 merged_data["total"] = merged_data["quantity"] * merged_data["list_price_order"] * (1 - merged_data["discount"])
 merged_data["mes"] = merged_data["order_date"].dt.to_period("M").astype(str)
 
@@ -135,7 +141,6 @@ def aplicar_filtros(df, categorias, fecha_ini, fecha_fin, monto_min):
         (df_filtrado["order_date"] <= pd.to_datetime(fecha_fin))
     ]
     
-    # Filtrar por monto mínimo (para gráficos específicos)
     return df_filtrado
 
 # Aplicar filtros
@@ -255,19 +260,37 @@ with tab2:
 with tab3:
     st.markdown("## 👥 Desempeño del Equipo")
     
-    # Vendedores con datos filtrados
-    ventas_vendedores = datos_filtrados.groupby(["first_name", "last_name"])["total"].sum().sort_values(ascending=False).head(8)
+    # Vendedores con datos filtrados (CORREGIDO)
+    # Verificar qué columnas de staffs existen
+    st.write("**Columnas disponibles en staffs:**", list(staffs.columns))
+    
+    # Usar las columnas correctas que existen en staffs
+    if 'first_name' in datos_filtrados.columns and 'last_name' in datos_filtrados.columns:
+        ventas_vendedores = datos_filtrados.groupby(["first_name", "last_name"])["total"].sum().sort_values(ascending=False).head(8)
+    elif 'staff_name' in datos_filtrados.columns:
+        ventas_vendedores = datos_filtrados.groupby("staff_name")["total"].sum().sort_values(ascending=False).head(8)
+    else:
+        # Si no hay nombres, usar staff_id
+        ventas_vendedores = datos_filtrados.groupby("staff_id")["total"].sum().sort_values(ascending=False).head(8)
     
     if not ventas_vendedores.empty:
         fig4, ax4 = plt.subplots(figsize=(10, 6))
         colors = plt.cm.Oranges(np.linspace(0.4, 0.9, len(ventas_vendedores)))
-        ventas_vendedores.plot(kind='bar', ax=ax4, color=colors)
+        
+        # Crear etiquetas según el tipo de agrupación
+        if isinstance(ventas_vendedores.index, pd.MultiIndex):
+            # Si es MultiIndex (first_name, last_name)
+            nombres_vendedores = [f"{f} {l}" for f, l in ventas_vendedores.index]
+        else:
+            # Si es single index
+            nombres_vendedores = [str(idx) for idx in ventas_vendedores.index]
+        
+        bars = ax4.bar(nombres_vendedores, ventas_vendedores.values, color=colors)
         ax4.set_title("Top Vendedores por Ventas", fontsize=14, fontweight='bold')
         ax4.set_ylabel("Ventas Totales (S/.)")
         ax4.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"S/ {x:,.0f}"))
         
-        # Formatear nombres en el eje X
-        nombres_vendedores = [f"{f} {l}" for f, l in ventas_vendedores.index]
+        # Rotar etiquetas si son muy largas
         ax4.set_xticklabels(nombres_vendedores, rotation=45, ha='right')
         
         plt.tight_layout()
@@ -287,7 +310,10 @@ with tab4:
     
     with col1:
         st.subheader("Reporte de Ventas Filtrado")
-        ventas_detalle = datos_filtrados[['product_name', 'category_name', 'quantity', 'total', 'order_date']]
+        # Seleccionar columnas que existen
+        columnas_disponibles = [col for col in ['product_name', 'category_name', 'quantity', 'total', 'order_date'] 
+                               if col in datos_filtrados.columns]
+        ventas_detalle = datos_filtrados[columnas_disponibles]
         csv_ventas = convert_df_to_csv(ventas_detalle)
         
         st.download_button(
@@ -349,5 +375,4 @@ st.markdown(
     datetime.now().strftime("%d/%m/%Y") +
     "</div>", 
     unsafe_allow_html=True
-)
 )
